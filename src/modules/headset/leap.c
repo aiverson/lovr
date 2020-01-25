@@ -137,7 +137,6 @@ static bool leap_isDown(Device device, DeviceButton button, bool* down) {
   LEAP_HAND* hand = state.hands[device - DEVICE_HAND_LEFT];
 
   switch (button) {
-    case BUTTON_TRIGGER: *down = hand->pinch_strength > .5f; return true;
     case BUTTON_GRIP: *down = hand->grab_strength > .5f; return true;
     default: return false;
   }
@@ -156,7 +155,7 @@ static bool leap_getAxis(Device device, DeviceAxis axis, float* value) {
     }
 
     switch (axis) {
-      case AXIS_TRIGGER: value[0] = hand->pinch_strength; return true;
+      case AXIS_PINCH: value[0] = hand->pinch_strength; return true;
       case AXIS_GRIP: value[0] = hand->grab_strength; return true;
       default: return false;
     }

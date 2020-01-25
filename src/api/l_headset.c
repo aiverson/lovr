@@ -67,6 +67,7 @@ const char* DeviceAxes[] = {
   [AXIS_GRIP] = "grip",
   [AXIS_CURL] = "curl",
   [AXIS_SPLAY] = "splay",
+  [AXIS_PINCH] = "pinch",
   NULL
 };
 
@@ -390,7 +391,8 @@ static const int axisCounts[MAX_AXES] = {
   [AXIS_TOUCHPAD] = 2,
   [AXIS_GRIP] = 1,
   [AXIS_CURL] = 1,
-  [AXIS_SPLAY] = 2
+  [AXIS_SPLAY] = 2,
+  [AXIS_PINCH] = 1
 };
 
 int l_lovrHeadsetGetAxis(lua_State* L) {
