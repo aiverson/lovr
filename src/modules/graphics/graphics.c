@@ -162,14 +162,15 @@ static void gammaCorrect(Color* color) {
 }
 
 static void onCloseWindow(void) {
-  lovrEventPush((Event) { .type = EVENT_QUIT, .data.quit = { false, 0 } });
+  lovrEventPush((Event) { .type = EVENT_QUIT, .data.quit = { .exitCode = 0 } });
 }
 
 static void onResizeWindow(int width, int height) {
   state.width = width;
   state.height = height;
-  state.defaultCanvas->width = width;
-  state.defaultCanvas->height = height;
+  lovrCanvasSetWidth(state.defaultCanvas, width);
+  lovrCanvasSetHeight(state.defaultCanvas, height);
+  lovrEventPush((Event) { .type = EVENT_RESIZE, .data.resize = { width, height } });
 }
 
 static void* lovrGraphicsMapBuffer(StreamType type, uint32_t count) {
@@ -303,13 +304,13 @@ void lovrGraphicsSetCamera(Camera* camera, bool clear) {
     mat4_perspective(state.camera.projection[0], .01f, 100.f, 67.f * (float) M_PI / 180.f, (float) state.width / state.height);
     mat4_perspective(state.camera.projection[1], .01f, 100.f, 67.f * (float) M_PI / 180.f, (float) state.width / state.height);
     state.camera.canvas = state.defaultCanvas;
-    state.camera.canvas->flags.stereo = false;
+    lovrCanvasSetStereo(state.camera.canvas, false);
   } else {
     state.camera = *camera;
 
     if (!state.camera.canvas) {
       state.camera.canvas = state.defaultCanvas;
-      state.camera.canvas->flags.stereo = camera->stereo;
+    lovrCanvasSetStereo(state.camera.canvas, camera->stereo);
     }
   }
 

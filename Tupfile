@@ -4,9 +4,11 @@ include_rules
 SRC += src/main.c
 SRC += src/core/arr.c
 SRC += src/core/fs.c
+SRC_@(GPU) += src/core/gpu_@(GPU_BACKEND).c
 SRC += src/core/maf.c
 SRC += src/core/map.c
 SRC += src/core/os_$(PLATFORM).c
+SRC += src/core/png.c
 SRC += src/core/ref.c
 SRC += src/core/utf.c
 SRC += src/core/util.c
@@ -25,6 +27,7 @@ SRC_@(HEADSET)@(OPENXR) += src/modules/headset/openxr.c
 SRC_@(HEADSET)@(OCULUS) += src/modules/headset/oculus.c
 SRC_@(HEADSET)@(VRAPI) += src/modules/headset/oculus_mobile.c
 SRC_@(HEADSET)@(WEBVR) += src/modules/headset/webvr.c
+SRC_@(HEADSET)@(WEBXR) += src/modules/headset/webxr.c
 SRC_@(HEADSET)@(LEAP) += src/modules/headset/leap.c
 SRC_@(MATH) += src/modules/math/*.c
 SRC_@(PHYSICS) += src/modules/physics/*.c
@@ -68,5 +71,5 @@ SRC_@(GRAPHICS) += src/resources/shaders.c
 
 : foreach $(RES) $(RES_y) |> !xd |> %f.h
 : foreach $(SRC) $(SRC_y) $(SRC_yy) | src/resources/*.h |> !cc |> .obj/%B.o
-: .obj/*.o |> !ld |> lovr
+: .obj/*.o $(STATIC_LIBS) $(STATIC_LIBS_y) |> !ld |> lovr$(SUFFIX) | $(EXTRAS) $(EXTRAS_y)
 : foreach $(LIBS) |> !cp |> libs/%b
