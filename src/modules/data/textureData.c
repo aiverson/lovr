@@ -14,6 +14,9 @@ static size_t getPixelSize(TextureFormat format) {
     case FORMAT_RGB: return 3;
     case FORMAT_RGBA: return 4;
     case FORMAT_RGBA4: return 2;
+    case FORMAT_R16: return 2;
+    case FORMAT_RG16: return 4;
+    case FORMAT_RGBA16: return 8;
     case FORMAT_RGBA16F: return 8;
     case FORMAT_RGBA32F: return 16;
     case FORMAT_R16F: return 2;
@@ -385,7 +388,7 @@ static bool parseKTX(uint8_t* bytes, size_t size, TextureData* textureData) {
     textureData->mipmaps[i] = (Mipmap) { .width = width, .height = height, .data = data.u8 + sizeof(uint32_t), .size = *data.u32 };
     width = MAX(width >> 1, 1u);
     height = MAX(height >> 1, 1u);
-    data.u8 = (uint8_t*) ALIGN(data.u8 + sizeof(uint32_t) + *data.u32 + 3, 4);
+    data.u8 = (uint8_t*) ALIGN(data.u8 + sizeof(uint32_t) + *data.u32, 4);
   }
 
   return true;
@@ -491,7 +494,26 @@ TextureData* lovrTextureDataInitFromBlob(TextureData* textureData, Blob* blob, b
   int width, height;
   int length = (int) blob->size;
   stbi_set_flip_vertically_on_load(flip);
-  if (stbi_is_hdr_from_memory(blob->data, length)) {
+  if (stbi_is_16_bit_from_memory(blob->data, length)) {
+    int channels;
+    textureData->blob->data = stbi_load_16_from_memory(blob->data, length, &width, &height, &channels, 0);
+    switch (channels) {
+      case 1:
+        textureData->format = FORMAT_R16;
+        textureData->blob->size = 2 * width * height;
+        break;
+      case 2:
+        textureData->format = FORMAT_RG16;
+        textureData->blob->size = 4 * width * height;
+        break;
+      case 4:
+        textureData->format = FORMAT_RGBA16;
+        textureData->blob->size = 8 * width * height;
+        break;
+      default:
+        lovrThrow("Unsupported channel count for 16 bit image: %d", channels);
+    }
+  } else if (stbi_is_hdr_from_memory(blob->data, length)) {
     textureData->format = FORMAT_RGBA32F;
     textureData->blob->data = stbi_loadf_from_memory(blob->data, length, &width, &height, NULL, 4);
     textureData->blob->size = 16 * width * height;

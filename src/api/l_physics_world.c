@@ -110,6 +110,65 @@ static int l_lovrWorldNewSphereCollider(lua_State* L) {
   return 1;
 }
 
+static int l_lovrWorldNewMeshCollider(lua_State* L) {
+  World* world = luax_checktype(L, 1, World);
+  lovrAssert(lua_istable(L, 2), "Vertices must be a table");
+  lovrAssert(lua_istable(L, 3), "Indices must be a table");
+  int vertexCount = luax_len(L, 2);
+  int indexCount  = luax_len(L, 3);
+  // TODO: this never gets deallocated
+  float    * vertices = malloc(sizeof(float) * vertexCount * 3);
+  unsigned * indices  = malloc(sizeof(unsigned) * indexCount);
+
+  for (int i = 0; i < vertexCount; i++) {
+    lua_rawgeti(L, 2, i + 1);
+    lovrAssert(lua_istable(L, -1), "Each verticle must be a table of coordinates");
+    lua_rawgeti(L, -1, 1); // x
+    vertices[i * 3 + 0] = luaL_optnumber(L, -1, 0.);
+    lua_pop(L, 1);
+    lua_rawgeti(L, -1, 2); // y
+    vertices[i * 3 + 1] = luaL_optnumber(L, -1, 0.);
+    lua_pop(L, 1);
+    lua_rawgeti(L, -1, 3); // z
+    vertices[i * 3 + 2] = luaL_optnumber(L, -1, 0.);
+    lua_pop(L, 2);
+  }
+  for (int i = 0; i < indexCount; i++) {
+    lua_rawgeti(L, 3, i + 1);
+    indices[i] = luaL_checkinteger(L, -1) - 1;
+  }
+  lua_pop(L, indexCount);
+  Collider* collider = lovrColliderCreate(world, 0,0,0);
+  MeshShape* shape = lovrMeshShapeCreate(vertexCount, vertices, indexCount, indices);
+  lovrColliderAddShape(collider, shape);
+  lovrColliderInitInertia(collider, shape);
+  luax_pushtype(L, Collider, collider);
+  lovrRelease(Collider, collider);
+  lovrRelease(Shape, shape);
+  return 1;
+}
+
+static int l_lovrWorldGetColliders(lua_State* L) {
+  World* world = luax_checktype(L, 1, World);
+
+  if (lua_istable(L, 2)) {
+    lua_settop(L, 2);
+  } else {
+    lua_newtable(L);
+  }
+
+  Collider* collider = lovrWorldGetFirstCollider(world);
+  int index = 1;
+
+  while (collider) {
+    luax_pushtype(L, Collider, collider);
+    lua_rawseti(L, -2, index++);
+    collider = collider->next;
+  }
+
+  return 1;
+}
+
 static int l_lovrWorldDestroy(lua_State* L) {
   World* world = luax_checktype(L, 1, World);
   lovrWorldDestroyData(world);
@@ -163,6 +222,36 @@ static int l_lovrWorldSetGravity(lua_State* L) {
   float gravity[4];
   luax_readvec3(L, 2, gravity, NULL);
   lovrWorldSetGravity(world, gravity[0], gravity[1], gravity[2]);
+  return 0;
+}
+
+static int l_lovrWorldGetTightness(lua_State* L) {
+  World* world = luax_checktype(L, 1, World);
+  float tightness = lovrWorldGetTightness(world);
+  lovrAssert(tightness >= 0, "Negative tightness factor causes simulation instability");
+  lua_pushnumber(L, tightness);
+  return 1;
+}
+
+static int l_lovrWorldSetTightness(lua_State* L) {
+  World* world = luax_checktype(L, 1, World);
+  float tightness = luax_checkfloat(L, 2);
+  lovrWorldSetTightness(world, tightness);
+  return 0;
+}
+
+static int l_lovrWorldGetResponseTime(lua_State* L) {
+  World* world = luax_checktype(L, 1, World);
+  float responseTime = lovrWorldGetResponseTime(world);
+  lua_pushnumber(L, responseTime);
+  return 1;
+}
+
+static int l_lovrWorldSetResponseTime(lua_State* L) {
+  World* world = luax_checktype(L, 1, World);
+  float responseTime = luax_checkfloat(L, 2);
+  lovrAssert(responseTime >= 0, "Negative response time causes simulation instability");
+  lovrWorldSetResponseTime(world, responseTime);
   return 0;
 }
 
@@ -255,6 +344,8 @@ const luaL_Reg lovrWorld[] = {
   { "newCapsuleCollider", l_lovrWorldNewCapsuleCollider },
   { "newCylinderCollider", l_lovrWorldNewCylinderCollider },
   { "newSphereCollider", l_lovrWorldNewSphereCollider },
+  { "newMeshCollider", l_lovrWorldNewMeshCollider },
+  { "getColliders", l_lovrWorldGetColliders },
   { "destroy", l_lovrWorldDestroy },
   { "update", l_lovrWorldUpdate },
   { "computeOverlaps", l_lovrWorldComputeOverlaps },
@@ -262,6 +353,10 @@ const luaL_Reg lovrWorld[] = {
   { "collide", l_lovrWorldCollide },
   { "getGravity", l_lovrWorldGetGravity },
   { "setGravity", l_lovrWorldSetGravity },
+  { "getTightness", l_lovrWorldGetTightness },
+  { "setTightness", l_lovrWorldSetTightness },
+  { "getResponseTime", l_lovrWorldGetResponseTime },
+  { "setResponseTime", l_lovrWorldSetResponseTime },
   { "getLinearDamping", l_lovrWorldGetLinearDamping },
   { "setLinearDamping", l_lovrWorldSetLinearDamping },
   { "getAngularDamping", l_lovrWorldGetAngularDamping },

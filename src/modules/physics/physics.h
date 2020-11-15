@@ -1,4 +1,5 @@
 #include "core/arr.h"
+#include "core/maf.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <ode/ode.h>
@@ -13,7 +14,8 @@ typedef enum {
   SHAPE_SPHERE,
   SHAPE_BOX,
   SHAPE_CAPSULE,
-  SHAPE_CYLINDER
+  SHAPE_CYLINDER,
+  SHAPE_MESH,
 } ShapeType;
 
 typedef enum {
@@ -62,6 +64,7 @@ typedef Shape SphereShape;
 typedef Shape BoxShape;
 typedef Shape CapsuleShape;
 typedef Shape CylinderShape;
+typedef Shape MeshShape;
 
 struct Joint {
   JointType type;
@@ -93,8 +96,13 @@ void lovrWorldUpdate(World* world, float dt, CollisionResolver resolver, void* u
 void lovrWorldComputeOverlaps(World* world);
 int lovrWorldGetNextOverlap(World* world, Shape** a, Shape** b);
 int lovrWorldCollide(World* world, Shape* a, Shape* b, float friction, float restitution);
+Collider* lovrWorldGetFirstCollider(World* world);
 void lovrWorldGetGravity(World* world, float* x, float* y, float* z);
 void lovrWorldSetGravity(World* world, float x, float y, float z);
+float lovrWorldGetResponseTime(World* world);
+void lovrWorldSetResponseTime(World* world, float responseTime);
+float lovrWorldGetTightness(World* world);
+void lovrWorldSetTightness(World* world, float tightness);
 void lovrWorldGetLinearDamping(World* world, float* damping, float* threshold);
 void lovrWorldSetLinearDamping(World* world, float damping, float threshold);
 void lovrWorldGetAngularDamping(World* world, float* damping, float* threshold);
@@ -139,8 +147,8 @@ void lovrColliderGetMassData(Collider* collider, float* cx, float* cy, float* cz
 void lovrColliderSetMassData(Collider* collider, float cx, float cy, float cz, float mass, float inertia[6]);
 void lovrColliderGetPosition(Collider* collider, float* x, float* y, float* z);
 void lovrColliderSetPosition(Collider* collider, float x, float y, float z);
-void lovrColliderGetOrientation(Collider* collider, float* angle, float* x, float* y, float* z);
-void lovrColliderSetOrientation(Collider* collider, float* quaternion);
+void lovrColliderGetOrientation(Collider* collider, quat orientation);
+void lovrColliderSetOrientation(Collider* collider, quat orientation);
 void lovrColliderGetLinearVelocity(Collider* collider, float* x, float* y, float* z);
 void lovrColliderSetLinearVelocity(Collider* collider, float x, float y, float z);
 void lovrColliderGetAngularVelocity(Collider* collider, float* x, float* y, float* z);
@@ -173,8 +181,8 @@ void* lovrShapeGetUserData(Shape* shape);
 void lovrShapeSetUserData(Shape* shape, void* data);
 void lovrShapeGetPosition(Shape* shape, float* x, float* y, float* z);
 void lovrShapeSetPosition(Shape* shape, float x, float y, float z);
-void lovrShapeGetOrientation(Shape* shape, float* angle, float* x, float* y, float* z);
-void lovrShapeSetOrientation(Shape* shape, float angle, float x, float y, float z);
+void lovrShapeGetOrientation(Shape* shape, quat orientation);
+void lovrShapeSetOrientation(Shape* shape, quat orientation);
 void lovrShapeGetMass(Shape* shape, float density, float* cx, float* cy, float* cz, float* mass, float inertia[6]);
 void lovrShapeGetAABB(Shape* shape, float aabb[6]);
 
@@ -206,9 +214,17 @@ void lovrCylinderShapeSetRadius(CylinderShape* cylinder, float radius);
 float lovrCylinderShapeGetLength(CylinderShape* cylinder);
 void lovrCylinderShapeSetLength(CylinderShape* cylinder, float length);
 
+MeshShape* lovrMeshShapeInit(MeshShape* mesh, int vertexCount, float vertices[], int indexCount, dTriIndex indices[]);
+#define lovrMeshShapeCreate(...) lovrMeshShapeInit(lovrAlloc(MeshShape), __VA_ARGS__)
+#define lovrMeshShapeDestroy lovrShapeDestroy
+
 void lovrJointDestroy(void* ref);
 void lovrJointDestroyData(Joint* joint);
 JointType lovrJointGetType(Joint* joint);
+float lovrJointGetCFM(Joint* joint);
+void lovrJointSetCFM(Joint* joint, float cfm);
+float lovrJointGetERP(Joint* joint);
+void lovrJointSetERP(Joint* joint, float erp);
 void lovrJointGetColliders(Joint* joint, Collider** a, Collider** b);
 void* lovrJointGetUserData(Joint* joint);
 void lovrJointSetUserData(Joint* joint, void* data);
@@ -220,6 +236,10 @@ BallJoint* lovrBallJointInit(BallJoint* joint, Collider* a, Collider* b, float x
 #define lovrBallJointDestroy lovrJointDestroy
 void lovrBallJointGetAnchors(BallJoint* joint, float* x1, float* y1, float* z1, float* x2, float* y2, float* z2);
 void lovrBallJointSetAnchor(BallJoint* joint, float x, float y, float z);
+float lovrBallJointGetResponseTime(Joint* joint);
+void lovrBallJointSetResponseTime(Joint* joint, float responseTime);
+float lovrBallJointGetTightness(Joint* joint);
+void lovrBallJointSetTightness(Joint* joint, float tightness);
 
 DistanceJoint* lovrDistanceJointInit(DistanceJoint* joint, Collider* a, Collider* b, float x1, float y1, float z1, float x2, float y2, float z2);
 #define lovrDistanceJointCreate(...) lovrDistanceJointInit(lovrAlloc(DistanceJoint), __VA_ARGS__)
@@ -228,6 +248,10 @@ void lovrDistanceJointGetAnchors(DistanceJoint* joint, float* x1, float* y1, flo
 void lovrDistanceJointSetAnchors(DistanceJoint* joint, float x1, float y1, float z1, float x2, float y2, float z2);
 float lovrDistanceJointGetDistance(DistanceJoint* joint);
 void lovrDistanceJointSetDistance(DistanceJoint* joint, float distance);
+float lovrDistanceJointGetResponseTime(Joint* joint);
+void lovrDistanceJointSetResponseTime(Joint* joint, float responseTime);
+float lovrDistanceJointGetTightness(Joint* joint);
+void lovrDistanceJointSetTightness(Joint* joint, float tightness);
 
 HingeJoint* lovrHingeJointInit(HingeJoint* joint, Collider* a, Collider* b, float x, float y, float z, float ax, float ay, float az);
 #define lovrHingeJointCreate(...) lovrHingeJointInit(lovrAlloc(HingeJoint), __VA_ARGS__)

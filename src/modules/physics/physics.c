@@ -1,5 +1,4 @@
 #include "physics.h"
-#include "core/maf.h"
 #include "core/ref.h"
 #include "core/util.h"
 #include <stdlib.h>
@@ -180,6 +179,10 @@ int lovrWorldCollide(World* world, Shape* a, Shape* b, float friction, float res
   return contactCount;
 }
 
+Collider* lovrWorldGetFirstCollider(World* world) {
+  return world->head;
+}
+
 void lovrWorldGetGravity(World* world, float* x, float* y, float* z) {
   dReal gravity[3];
   dWorldGetGravity(world->id, gravity);
@@ -190,6 +193,22 @@ void lovrWorldGetGravity(World* world, float* x, float* y, float* z) {
 
 void lovrWorldSetGravity(World* world, float x, float y, float z) {
   dWorldSetGravity(world->id, x, y, z);
+}
+
+float lovrWorldGetResponseTime(World* world) {
+  return dWorldGetCFM(world->id);
+}
+
+void lovrWorldSetResponseTime(World* world, float responseTime) {
+  dWorldSetCFM(world->id, responseTime);
+}
+
+float lovrWorldGetTightness(World* world) {
+  return dWorldGetERP(world->id);
+}
+
+void lovrWorldSetTightness(World* world, float tightness) {
+  dWorldSetERP(world->id, tightness);
 }
 
 void lovrWorldGetLinearDamping(World* world, float* damping, float* threshold) {
@@ -519,14 +538,13 @@ void lovrColliderSetPosition(Collider* collider, float x, float y, float z) {
   dBodySetPosition(collider->body, x, y, z);
 }
 
-void lovrColliderGetOrientation(Collider* collider, float* angle, float* x, float* y, float* z) {
+void lovrColliderGetOrientation(Collider* collider, quat orientation) {
   const dReal* q = dBodyGetQuaternion(collider->body);
-  float quaternion[4] = { q[1], q[2], q[3], q[0] };
-  quat_getAngleAxis(quaternion, angle, x, y, z);
+  quat_set(orientation, q[1], q[2], q[3], q[0]);
 }
 
-void lovrColliderSetOrientation(Collider* collider, float* quaternion) {
-  float q[4] = { quaternion[3], quaternion[0], quaternion[1], quaternion[2] };
+void lovrColliderSetOrientation(Collider* collider, quat orientation) {
+  float q[4] = { orientation[3], orientation[0], orientation[1], orientation[2] };
   dBodySetQuaternion(collider->body, q);
 }
 
@@ -669,6 +687,10 @@ void lovrShapeDestroy(void* ref) {
 
 void lovrShapeDestroyData(Shape* shape) {
   if (shape->id) {
+    if (shape->type == SHAPE_MESH) {
+      dTriMeshDataID dataID = dGeomTriMeshGetData(shape->id);
+      dGeomTriMeshDataDestroy(dataID);
+    }
     dGeomDestroy(shape->id);
     shape->id = NULL;
   }
@@ -721,17 +743,14 @@ void lovrShapeSetPosition(Shape* shape, float x, float y, float z) {
   dGeomSetOffsetPosition(shape->id, x, y, z);
 }
 
-void lovrShapeGetOrientation(Shape* shape, float* angle, float* x, float* y, float* z) {
+void lovrShapeGetOrientation(Shape* shape, quat orientation) {
   dReal q[4];
   dGeomGetOffsetQuaternion(shape->id, q);
-  float quaternion[4] = { q[1], q[2], q[3], q[0] };
-  quat_getAngleAxis(quaternion, angle, x, y, z);
+  quat_set(orientation, q[1], q[2], q[3], q[0]);
 }
 
-void lovrShapeSetOrientation(Shape* shape, float angle, float x, float y, float z) {
-  float quaternion[4];
-  quat_fromAngleAxis(quaternion, angle, x, y, z);
-  float q[4] = { quaternion[3], quaternion[0], quaternion[1], quaternion[2] };
+void lovrShapeSetOrientation(Shape* shape, quat orientation) {
+  float q[4] = { orientation[3], orientation[0], orientation[1], orientation[2] };
   dGeomSetOffsetQuaternion(shape->id, q);
 }
 
@@ -762,6 +781,13 @@ void lovrShapeGetMass(Shape* shape, float density, float* cx, float* cy, float* 
       dReal radius, length;
       dGeomCylinderGetParams(shape->id, &radius, &length);
       dMassSetCylinder(&m, density, 3, radius, length);
+      break;
+    }
+
+    case SHAPE_MESH: {
+      dMassSetTrimesh(&m, density, shape->id);
+      dGeomSetPosition(shape->id, -m.c[0], -m.c[1], -m.c[2]);
+      dMassTranslate(&m, -m.c[0], -m.c[1], -m.c[2]);
       break;
     }
   }
@@ -879,6 +905,17 @@ void lovrCylinderShapeSetLength(CylinderShape* cylinder, float length) {
   dGeomCylinderSetParams(cylinder->id, lovrCylinderShapeGetRadius(cylinder), length);
 }
 
+MeshShape* lovrMeshShapeInit(MeshShape* mesh, int vertexCount, float vertices[], int indexCount, dTriIndex indices[]) {
+  dTriMeshDataID dataID = dGeomTriMeshDataCreate();
+  dGeomTriMeshDataBuildSingle(dataID, vertices, 3 * sizeof(float), vertexCount, 
+                              indices, indexCount, 3 * sizeof(dTriIndex));
+  dGeomTriMeshDataPreprocess2(dataID, (1U << dTRIDATAPREPROCESS_BUILD_FACE_ANGLES), NULL);
+  mesh->id = dCreateTriMesh(0, dataID, 0, 0, 0);
+  mesh->type = SHAPE_MESH;
+  dGeomSetData(mesh->id, mesh);
+  return mesh;
+}
+
 void lovrJointDestroy(void* ref) {
   Joint* joint = ref;
   lovrJointDestroyData(joint);
@@ -955,6 +992,22 @@ void lovrBallJointSetAnchor(BallJoint* joint, float x, float y, float z) {
   dJointSetBallAnchor(joint->id, x, y, z);
 }
 
+float lovrBallJointGetResponseTime(Joint* joint) {
+  return dJointGetBallParam(joint->id, dParamCFM);
+}
+
+void lovrBallJointSetResponseTime(Joint* joint, float responseTime) {
+  dJointSetBallParam(joint->id, dParamCFM, responseTime);
+}
+
+float lovrBallJointGetTightness(Joint* joint) {
+  return dJointGetBallParam(joint->id, dParamERP);
+}
+
+void lovrBallJointSetTightness(Joint* joint, float tightness) {
+  dJointSetBallParam(joint->id, dParamERP, tightness);
+}
+
 DistanceJoint* lovrDistanceJointInit(DistanceJoint* joint, Collider* a, Collider* b, float x1, float y1, float z1, float x2, float y2, float z2) {
   lovrAssert(a->world == b->world, "Joint bodies must exist in same World");
   joint->type = JOINT_DISTANCE;
@@ -989,6 +1042,22 @@ float lovrDistanceJointGetDistance(DistanceJoint* joint) {
 
 void lovrDistanceJointSetDistance(DistanceJoint* joint, float distance) {
   dJointSetDBallDistance(joint->id, distance);
+}
+
+float lovrDistanceJointGetResponseTime(Joint* joint) {
+  return dJointGetDBallParam(joint->id, dParamCFM);
+}
+
+void lovrDistanceJointSetResponseTime(Joint* joint, float responseTime) {
+  dJointSetDBallParam(joint->id, dParamCFM, responseTime);
+}
+
+float lovrDistanceJointGetTightness(Joint* joint) {
+  return dJointGetDBallParam(joint->id, dParamERP);
+}
+
+void lovrDistanceJointSetTightness(Joint* joint, float tightness) {
+  dJointSetDBallParam(joint->id, dParamERP, tightness);
 }
 
 HingeJoint* lovrHingeJointInit(HingeJoint* joint, Collider* a, Collider* b, float x, float y, float z, float ax, float ay, float az) {

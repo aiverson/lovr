@@ -8,7 +8,6 @@
 #include "resources/shaders.h"
 #include "data/modelData.h"
 #include "math/math.h"
-#include "core/hash.h"
 #include "core/ref.h"
 #include <math.h>
 #include <limits.h>
@@ -236,6 +235,9 @@ static GLenum convertTextureFormat(TextureFormat format) {
     case FORMAT_RGB: return GL_RGB;
     case FORMAT_RGBA: return GL_RGBA;
     case FORMAT_RGBA4: return GL_RGBA;
+    case FORMAT_R16: return GL_RED;
+    case FORMAT_RG16: return GL_RG;
+    case FORMAT_RGBA16: return GL_RGBA;
     case FORMAT_RGBA16F: return GL_RGBA;
     case FORMAT_RGBA32F: return GL_RGBA;
     case FORMAT_R16F: return GL_RED;
@@ -275,6 +277,9 @@ static GLenum convertTextureFormatInternal(TextureFormat format, bool srgb) {
     case FORMAT_RGB: return srgb ? GL_SRGB8 : GL_RGB8;
     case FORMAT_RGBA: return srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
     case FORMAT_RGBA4: return GL_RGBA4;
+    case FORMAT_R16: return GL_R16;
+    case FORMAT_RG16: return GL_RG16;
+    case FORMAT_RGBA16: return GL_RGBA16;
     case FORMAT_RGBA16F: return GL_RGBA16F;
     case FORMAT_RGBA32F: return GL_RGBA32F;
     case FORMAT_R16F: return GL_R16F;
@@ -330,6 +335,9 @@ static GLenum convertTextureFormatType(TextureFormat format) {
     case FORMAT_RGB: return GL_UNSIGNED_BYTE;
     case FORMAT_RGBA: return GL_UNSIGNED_BYTE;
     case FORMAT_RGBA4: return GL_UNSIGNED_SHORT_4_4_4_4;
+    case FORMAT_R16: return GL_UNSIGNED_SHORT;
+    case FORMAT_RG16: return GL_UNSIGNED_SHORT;
+    case FORMAT_RGBA16: return GL_UNSIGNED_SHORT;
     case FORMAT_RGBA16F: return GL_HALF_FLOAT;
     case FORMAT_RGBA32F: return GL_FLOAT;
     case FORMAT_R16F: return GL_HALF_FLOAT;
@@ -386,6 +394,9 @@ static uint64_t getTextureMemorySize(Texture* texture) {
     case FORMAT_RGB: bitrate = 24.f; break;
     case FORMAT_RGBA: bitrate = 32.f; break;
     case FORMAT_RGBA4: bitrate = 16.f; break;
+    case FORMAT_R16: bitrate = 16.f; break;
+    case FORMAT_RG16: bitrate = 32.f; break;
+    case FORMAT_RGBA16: bitrate = 64.f; break;
     case FORMAT_RGBA16F: bitrate = 64.f; break;
     case FORMAT_RGBA32F: bitrate = 128.f; break;
     case FORMAT_R16F: bitrate = 16.f; break;
@@ -477,6 +488,22 @@ static GLenum convertTopology(DrawMode topology) {
     case DRAW_TRIANGLES: return GL_TRIANGLES;
     case DRAW_TRIANGLE_FAN: return GL_TRIANGLE_FAN;
     default: lovrThrow("Unreachable");
+  }
+}
+
+static bool isAttributeTypeInteger(GLenum type) {
+  switch (type) {
+    case GL_INT:
+    case GL_INT_VEC2:
+    case GL_INT_VEC3:
+    case GL_INT_VEC4:
+    case GL_UNSIGNED_INT:
+    case GL_UNSIGNED_INT_VEC2:
+    case GL_UNSIGNED_INT_VEC3:
+    case GL_UNSIGNED_INT_VEC4:
+      return true;
+    default:
+      return false;
   }
 }
 
@@ -733,17 +760,18 @@ static void lovrGpuBindTexture(Texture* texture, int slot) {
 }
 
 #ifndef LOVR_WEBGL
-static void lovrGpuBindImage(Image* image, int slot) {
+static void lovrGpuBindImage(Image* image, int slot, const char* name) {
   lovrAssert(slot >= 0 && slot < MAX_IMAGES, "Invalid image slot %d", slot);
 
   // This is a risky way to compare the two structs
   if (memcmp(state.images + slot, image, sizeof(Image))) {
-    Texture* texture = image->texture ? image->texture : state.defaultTexture;
-    lovrAssert(!texture->srgb, "sRGB textures can not be used as image uniforms");
-    lovrAssert(!isTextureFormatCompressed(texture->format), "Compressed textures can not be used as image uniforms");
-    lovrAssert(texture->format != FORMAT_RGB && texture->format != FORMAT_RGBA4 && texture->format != FORMAT_RGB5A1, "Unsupported texture format for image uniform");
-    lovrAssert(image->mipmap < (int) texture->mipmapCount, "Invalid mipmap level '%d' for image uniform", image->mipmap);
-    lovrAssert(image->slice < (int) texture->depth, "Invalid texture slice '%d' for image uniform", image->slice);
+    Texture* texture = image->texture;
+    lovrAssert(texture, "No Texture bound to image uniform '%s'", name);
+    lovrAssert(texture->format != FORMAT_RGBA || !texture->srgb, "Attempt to bind sRGB texture to image uniform '%s'", name);
+    lovrAssert(!isTextureFormatCompressed(texture->format), "Attempt to bind compressed texture to image uniform '%s'", name);
+    lovrAssert(texture->format != FORMAT_RGB && texture->format != FORMAT_RGBA4 && texture->format != FORMAT_RGB5A1, "Unsupported texture format for image uniform '%s'", name);
+    lovrAssert(image->mipmap < (int) texture->mipmapCount, "Invalid mipmap level '%d' for image uniform '%s'", image->mipmap, name);
+    lovrAssert(image->slice < (int) texture->depth, "Invalid texture slice '%d' for image uniform '%s'", image->slice, name);
     GLenum glAccess = convertAccess(image->access);
     GLenum glFormat = convertTextureFormatInternal(texture->format, false);
     bool layered = image->slice == -1;
@@ -776,9 +804,10 @@ static void lovrGpuBindMesh(Mesh* mesh, Shader* shader, int baseDivisor) {
   for (uint32_t i = 0; i < mesh->attributeCount; i++) {
     MeshAttribute* attribute;
     int location;
+    bool integer;
 
     if ((attribute = &mesh->attributes[i])->disabled) { continue; }
-    if ((location = lovrShaderGetAttributeLocation(shader, mesh->attributeNames[i])) < 0) { continue; }
+    if ((location = lovrShaderGetAttributeLocation(shader, mesh->attributeNames[i], &integer)) < 0) { continue; }
 
     lovrBufferUnmap(attribute->buffer);
     enabledLocations |= (1 << location);
@@ -796,7 +825,7 @@ static void lovrGpuBindMesh(Mesh* mesh, Shader* shader, int baseDivisor) {
     GLenum type = convertAttributeType(attribute->type);
     GLvoid* offset = (GLvoid*) (intptr_t) attribute->offset;
 
-    if (attribute->integer) {
+    if (integer) {
       glVertexAttribIPointer(location, attribute->components, type, attribute->stride, offset);
     } else {
       glVertexAttribPointer(location, attribute->components, type, attribute->normalized, attribute->stride, offset);
@@ -1144,7 +1173,7 @@ static void lovrGpuBindShader(Shader* shader) {
             }
           }
 
-          lovrGpuBindImage(image, uniform->baseSlot + j);
+          lovrGpuBindImage(image, uniform->baseSlot + j, uniform->name);
         }
 #endif
         break;
@@ -1197,7 +1226,18 @@ static void lovrGpuSetViewports(float* viewport, uint32_t count) {
 
 // GPU
 
-void lovrGpuInit(void* (*getProcAddress)(const char*)) {
+static void GLAPIENTRY onMessage(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userdata) {
+  int level;
+  switch (severity) {
+    case GL_DEBUG_SEVERITY_HIGH: level = LOG_ERROR; break;
+    case GL_DEBUG_SEVERITY_MEDIUM: level = LOG_WARN; break;
+    case GL_DEBUG_SEVERITY_LOW: level = LOG_INFO; break;
+    default: level = LOG_DEBUG; break;
+  }
+  lovrLog(level, "GL", message);
+}
+
+void lovrGpuInit(void* (*getProcAddress)(const char*), bool debug) {
 #ifdef LOVR_GL
   gladLoadGLLoader((GLADloadproc) getProcAddress);
 #elif defined(LOVR_GLES)
@@ -1205,12 +1245,16 @@ void lovrGpuInit(void* (*getProcAddress)(const char*)) {
 #endif
 
 #ifndef LOVR_WEBGL
+  if (debug && (GLAD_GL_KHR_debug || GLAD_GL_ES_VERSION_3_2)) {
+    glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+    glDebugMessageCallback(onMessage, NULL);
+  }
   state.features.astc = GLAD_GL_ES_VERSION_3_2;
   state.features.compute = GLAD_GL_ES_VERSION_3_1 || GLAD_GL_ARB_compute_shader;
   state.features.dxt = GLAD_GL_EXT_texture_compression_s3tc;
   state.features.instancedStereo = GLAD_GL_ARB_viewport_array && GLAD_GL_AMD_vertex_shader_viewport_index && GLAD_GL_ARB_fragment_layer_viewport;
   state.features.multiview = GLAD_GL_ES_VERSION_3_0 && GLAD_GL_OVR_multiview2 && GLAD_GL_OVR_multiview_multisampled_render_to_texture;
-  state.features.timers = GLAD_GL_VERSION_3_3 || GLAD_GL_EXT_disjoint_timer_query;
+  state.features.timers = GLAD_GL_VERSION_3_3;
 #ifdef LOVR_GL
   glEnable(GL_LINE_SMOOTH);
   glEnable(GL_PROGRAM_POINT_SIZE);
@@ -1218,6 +1262,12 @@ void lovrGpuInit(void* (*getProcAddress)(const char*)) {
   glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
 #endif
   glGetFloatv(GL_POINT_SIZE_RANGE, state.limits.pointSizes);
+
+  if (state.features.compute) {
+    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &state.limits.compute[0]);
+    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 1, &state.limits.compute[1]);
+    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &state.limits.compute[2]);
+  }
 
   if (state.features.multiview) {
     state.singlepass = MULTIVIEW;
@@ -1351,6 +1401,9 @@ void lovrGpuCompute(Shader* shader, int x, int y, int z) {
 #else
   lovrAssert(state.features.compute, "Compute shaders are not supported on this system");
   lovrAssert(shader->type == SHADER_COMPUTE, "Attempt to use a non-compute shader for a compute operation");
+  lovrAssert(x <= state.limits.compute[0], "Compute x size %d exceeds the maximum of %d", state.limits.compute[0]);
+  lovrAssert(y <= state.limits.compute[1], "Compute y size %d exceeds the maximum of %d", state.limits.compute[1]);
+  lovrAssert(z <= state.limits.compute[2], "Compute z size %d exceeds the maximum of %d", state.limits.compute[2]);
   lovrGraphicsFlush();
   lovrGpuBindShader(shader);
   glDispatchCompute(x, y, z);
@@ -1466,8 +1519,37 @@ void lovrGpuDirtyTexture() {
   state.textures[state.activeTexture] = NULL;
 }
 
+// This doesn't actually reset all state, just state that is known to be changed externally
+void lovrGpuResetState() {
+  if (state.vertexArray) {
+    glBindVertexArray(state.vertexArray->vao);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, state.vertexArray->ibo);
+  }
+
+  for (size_t i = 0; i < MAX_BUFFER_TYPES; i++) {
+    if (!state.vertexArray || i != BUFFER_INDEX) {
+      glBindBuffer(convertBufferType(i), state.buffers[i]);
+    }
+  }
+
+  glBindFramebuffer(GL_FRAMEBUFFER, state.framebuffer);
+  glUseProgram(state.program);
+
+  if (state.blendEnabled) {
+    glEnable(GL_BLEND);
+  } else {
+    glDisable(GL_BLEND);
+  }
+
+  if (state.depthEnabled) {
+    glEnable(GL_DEPTH_TEST);
+  } else {
+    glDisable(GL_DEPTH_TEST);
+  }
+}
+
 void lovrGpuTick(const char* label) {
-#ifndef LOVR_WEBGL
+#ifdef LOVR_GL
   lovrAssert(state.activeTimer == ~0u, "Attempt to start a new GPU timer while one is already active!");
   QueryPool* pool = &state.queryPool;
   uint64_t hash = hash64(label, strlen(label));
@@ -1520,7 +1602,7 @@ void lovrGpuTick(const char* label) {
 }
 
 double lovrGpuTock(const char* label) {
-#ifndef LOVR_WEBGL
+#ifdef LOVR_GL
   QueryPool* pool = &state.queryPool;
   uint64_t hash = hash64(label, strlen(label));
   uint64_t index = map_get(&state.timerMap, hash);
@@ -1611,7 +1693,7 @@ Texture* lovrTextureCreate(TextureType type, TextureData** slices, uint32_t slic
   return texture;
 }
 
-Texture* lovrTextureCreateFromHandle(uint32_t handle, TextureType type, uint32_t depth) {
+Texture* lovrTextureCreateFromHandle(uint32_t handle, TextureType type, uint32_t depth, uint32_t msaa) {
   Texture* texture = lovrAlloc(Texture);
   state.stats.textureCount++;
   texture->type = type;
@@ -1628,6 +1710,15 @@ Texture* lovrTextureCreateFromHandle(uint32_t handle, TextureType type, uint32_t
   texture->height = (uint32_t) height;
   texture->depth = depth; // There isn't an easy way to get depth/layer count, so it's passed in...
   texture->mipmapCount = 1;
+
+  if (msaa > 1) {
+    texture->msaa = msaa;
+    GLint internalFormat;
+    glGetTexLevelParameteriv(texture->target, 0, GL_TEXTURE_INTERNAL_FORMAT, &internalFormat);
+    glGenRenderbuffers(1, &texture->msaaId);
+    glBindRenderbuffer(GL_RENDERBUFFER, texture->msaaId);
+    glRenderbufferStorageMultisample(GL_RENDERBUFFER, texture->msaa, internalFormat, width, height);
+  }
 
   return texture;
 }
@@ -2006,6 +2097,10 @@ TextureData* lovrCanvasNewTextureData(Canvas* canvas, uint32_t index) {
   lovrGraphicsFlushCanvas(canvas);
   lovrGpuBindCanvas(canvas, false);
 
+  if (canvas->flags.msaa) {
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, canvas->resolveBuffer);
+  }
+
 #ifndef LOVR_WEBGL
   Texture* texture = canvas->attachments[index].texture;
   if ((texture->incoherent >> BARRIER_TEXTURE) & 1) {
@@ -2125,13 +2220,7 @@ Buffer* lovrBufferCreate(size_t size, void* data, BufferType type, BufferUsage u
     memcpy(buffer->data, data, size);
   }
 #else
-  if (GLAD_GL_ARB_buffer_storage) {
-    GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | (readable ? GL_MAP_READ_BIT : 0);
-    glBufferStorage(glType, size, data, flags);
-    buffer->data = glMapBufferRange(glType, 0, size, flags | GL_MAP_FLUSH_EXPLICIT_BIT);
-  } else {
-    glBufferData(glType, size, data, convertBufferUsage(usage));
-  }
+  glBufferData(glType, size, data, convertBufferUsage(usage));
 #endif
 
   return buffer;
@@ -2160,13 +2249,15 @@ BufferUsage lovrBufferGetUsage(Buffer* buffer) {
   return buffer->usage;
 }
 
-void* lovrBufferMap(Buffer* buffer, size_t offset) {
+void* lovrBufferMap(Buffer* buffer, size_t offset, bool unsynchronized) {
 #ifndef LOVR_WEBGL
-  if (!GLAD_GL_ARB_buffer_storage && !buffer->mapped) {
+  if (!buffer->mapped) {
     buffer->mapped = true;
     lovrGpuBindBuffer(buffer->type, buffer->id);
+    lovrAssert(!buffer->readable || !unsynchronized, "Readable Buffers must be mapped with synchronization");
     GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT;
-    flags |= buffer->readable ? GL_MAP_READ_BIT : GL_MAP_UNSYNCHRONIZED_BIT;
+    flags |= buffer->readable ? GL_MAP_READ_BIT : 0;
+    flags |= unsynchronized ? GL_MAP_UNSYNCHRONIZED_BIT : 0;
     buffer->data = glMapBufferRange(convertBufferType(buffer->type), 0, buffer->size, flags);
   }
 #endif
@@ -2174,6 +2265,9 @@ void* lovrBufferMap(Buffer* buffer, size_t offset) {
 }
 
 void lovrBufferFlush(Buffer* buffer, size_t offset, size_t size) {
+#ifndef LOVR_WEBGL
+  lovrAssert(size == 0 || buffer->mapped, "Attempt to flush unmapped Buffer");
+#endif
   buffer->flushFrom = MIN(buffer->flushFrom, offset);
   buffer->flushTo = MAX(buffer->flushTo, offset + size);
 }
@@ -2186,17 +2280,15 @@ void lovrBufferUnmap(Buffer* buffer) {
     glBufferSubData(convertBufferType(buffer->type), buffer->flushFrom, buffer->flushTo - buffer->flushFrom, data);
   }
 #else
-  if (buffer->mapped || GLAD_GL_ARB_buffer_storage) {
+  if (buffer->mapped) {
     lovrGpuBindBuffer(buffer->type, buffer->id);
 
     if (buffer->flushTo > buffer->flushFrom) {
       glFlushMappedBufferRange(convertBufferType(buffer->type), buffer->flushFrom, buffer->flushTo - buffer->flushFrom);
     }
 
-    if (buffer->mapped) {
-      glUnmapBuffer(convertBufferType(buffer->type));
-      buffer->mapped = false;
-    }
+    glUnmapBuffer(convertBufferType(buffer->type));
+    buffer->mapped = false;
   }
 #endif
   buffer->flushFrom = SIZE_MAX;
@@ -2204,25 +2296,16 @@ void lovrBufferUnmap(Buffer* buffer) {
 }
 
 void lovrBufferDiscard(Buffer* buffer) {
+  lovrAssert(!buffer->readable, "Readable Buffers can not be discarded");
+  lovrAssert(!buffer->mapped, "Mapped Buffers can not be discarded");
   lovrGpuBindBuffer(buffer->type, buffer->id);
   GLenum glType = convertBufferType(buffer->type);
 #ifdef LOVR_WEBGL
   glBufferData(glType, buffer->size, NULL, convertBufferUsage(buffer->usage));
 #else
-  // We unmap even if persistent mapping is supported
-  if (buffer->mapped || GLAD_GL_ARB_buffer_storage) {
-    glUnmapBuffer(glType);
-    buffer->mapped = false;
-  }
-
-  GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT;
-  flags |= buffer->readable ? GL_MAP_READ_BIT : (GL_MAP_UNSYNCHRONIZED_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-  flags |= GLAD_GL_ARB_buffer_storage ? GL_MAP_PERSISTENT_BIT : 0;
+  GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
   buffer->data = glMapBufferRange(glType, 0, buffer->size, flags);
-
-  if (!GLAD_GL_ARB_buffer_storage) {
-    buffer->mapped = true;
-  }
+  buffer->mapped = true;
 #endif
 }
 
@@ -2573,14 +2656,17 @@ Shader* lovrShaderCreateGraphics(const char* vertexSource, int vertexSourceLengt
   // Attribute cache
   int32_t attributeCount;
   glGetProgramiv(program, GL_ACTIVE_ATTRIBUTES, &attributeCount);
-  map_init(&shader->attributes, 0);
+  map_init(&shader->attributes, attributeCount);
   for (int i = 0; i < attributeCount; i++) {
     char name[LOVR_MAX_ATTRIBUTE_LENGTH];
     GLint size;
     GLenum type;
     GLsizei length;
     glGetActiveAttrib(program, i, LOVR_MAX_ATTRIBUTE_LENGTH, &length, &size, &type, name);
-    map_set(&shader->attributes, hash64(name, length), glGetAttribLocation(program, name));
+    int location = glGetAttribLocation(program, name);
+    if (location >= 0) {
+      map_set(&shader->attributes, hash64(name, length), (location << 1) | isAttributeTypeInteger(type));
+    }
   }
 
   shader->multiview = multiview;
@@ -2634,6 +2720,7 @@ void lovrShaderDestroy(void* ref) {
   for (BlockType type = BLOCK_UNIFORM; type <= BLOCK_COMPUTE; type++) {
     for (size_t i = 0; i < shader->blocks[type].length; i++) {
       lovrRelease(Buffer, shader->blocks[type].data[i].source);
+      arr_free(&shader->blocks[type].data[i].uniforms);
     }
   }
   arr_free(&shader->uniforms);
@@ -2648,9 +2735,10 @@ ShaderType lovrShaderGetType(Shader* shader) {
   return shader->type;
 }
 
-int lovrShaderGetAttributeLocation(Shader* shader, const char* name) {
-  uint64_t location = map_get(&shader->attributes, hash64(name, strlen(name)));
-  return location == MAP_NIL ? -1 : (int) location;
+int lovrShaderGetAttributeLocation(Shader* shader, const char* name, bool* integer) {
+  uint64_t info = map_get(&shader->attributes, hash64(name, strlen(name)));
+  *integer = info & 1;
+  return info == MAP_NIL ? -1 : (int) (info >> 1);
 }
 
 bool lovrShaderHasUniform(Shader* shader, const char* name) {
@@ -2780,7 +2868,7 @@ BlockType lovrShaderBlockGetType(ShaderBlock* block) {
   return block->type;
 }
 
-char* lovrShaderBlockGetShaderCode(ShaderBlock* block, const char* blockName, size_t* length) {
+char* lovrShaderBlockGetShaderCode(ShaderBlock* block, const char* blockName, const char* namespace, size_t* length) {
 
   // Calculate
   size_t size = 0;
@@ -2797,7 +2885,13 @@ char* lovrShaderBlockGetShaderCode(ShaderBlock* block, const char* blockName, si
     size += strlen(block->uniforms.data[i].name);
     size += 2; // ";\n"
   }
-  size += 3; // "};\n"
+  if (namespace) {
+    size += 2; // "} "
+    size += strlen(namespace);
+    size += 2; // ";\n"
+  } else {
+    size += 3; // "};\n"
+  }
 
   // Allocate
   char* code = malloc(size + 1);
@@ -2814,7 +2908,11 @@ char* lovrShaderBlockGetShaderCode(ShaderBlock* block, const char* blockName, si
       s += sprintf(s, "  %s %s;\n", getUniformTypeName(uniform), uniform->name);
     }
   }
-  s += sprintf(s, "};\n");
+  if (namespace) {
+    s += sprintf(s, "} %s;\n", namespace);
+  } else {
+    s += sprintf(s, "};\n");
+  }
   *s = '\0';
 
   *length = size;
