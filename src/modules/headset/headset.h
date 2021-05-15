@@ -31,6 +31,18 @@ typedef enum {
   DEVICE_HAND_RIGHT,
   DEVICE_HAND_LEFT_POINT,
   DEVICE_HAND_RIGHT_POINT,
+  DEVICE_ELBOW_LEFT,
+  DEVICE_ELBOW_RIGHT,
+  DEVICE_SHOULDER_LEFT,
+  DEVICE_SHOULDER_RIGHT,
+  DEVICE_CHEST,
+  DEVICE_WAIST,
+  DEVICE_KNEE_LEFT,
+  DEVICE_KNEE_RIGHT,
+  DEVICE_FOOT_LEFT,
+  DEVICE_FOOT_RIGHT,
+  DEVICE_CAMERA,
+  DEVICE_KEYBOARD,
   DEVICE_EYE_LEFT,
   DEVICE_EYE_RIGHT,
   DEVICE_BEACON_1,
@@ -100,7 +112,7 @@ typedef enum {
 typedef struct HeadsetInterface {
   struct HeadsetInterface* next;
   HeadsetDriver driverType;
-  bool (*init)(float supersample, float offset, uint32_t msaa);
+  bool (*init)(float supersample, float offset, uint32_t msaa, bool overlay);
   void (*destroy)(void);
   bool (*getName)(char* name, size_t length);
   HeadsetOrigin (*getOriginType)(void);
@@ -145,5 +157,5 @@ extern HeadsetInterface* lovrHeadsetTrackingDrivers;
 #define FOREACH_TRACKING_DRIVER(i)\
   for (HeadsetInterface* i = lovrHeadsetTrackingDrivers; i != NULL; i = i->next)
 
-bool lovrHeadsetInit(HeadsetDriver* drivers, size_t count, float supersample, float offset, uint32_t msaa);
+bool lovrHeadsetInit(HeadsetDriver* drivers, size_t count, float supersample, float offset, uint32_t msaa, bool overlay);
 void lovrHeadsetDestroy(void);
