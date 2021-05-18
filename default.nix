@@ -31,11 +31,11 @@ pkgs.stdenv.mkDerivation {
   buildPhase = "cmake --build build --parallel $NIX_BUILD_CORES; ls build  ";
   installPhase = ''
     # cmake --install build
-    cp -r . $out
-    # mkdir -p $out/bin
-    # mkdir -p $out/lib
-    # cp build/bin/lovr $out/bin/lovr
-    # cp build/msdfgen/libmsdfgen.so build/ode/libode.so $out/lib
-    # patchelf --print-rpath $out/bin/lovr'';
+    # cp -r . $out
+    mkdir -p $out/bin
+    mkdir -p $out/lib
+    cp build/bin/lovr $out/bin/lovr
+    cp build/lib/* $out/lib/
+    patchelf --print-rpath $out/bin/lovr'';
   # installPhase = "pwd ; cp -r . $out";
 }

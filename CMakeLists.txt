@@ -795,20 +795,19 @@ elseif(UNIX)
   function(move_lib)
     if(TARGET ${ARGV0})
       get_target_property(TARGET_TYPE ${ARGV0} TYPE)
-      # if(${TARGET_TYPE} STREQUAL "MODULE_LIBRARY")
-      #   add_custom_command(TARGET lovr POST_BUILD
-      #     COMMAND ${CMAKE_COMMAND} -E copy
-      #     $<TARGET_FILE:${ARGV0}>
-      #     ${CMAKE_BINARY_DIR}/bin/$<TARGET_FILE_NAME:${ARGV0}>
-      #   )
-      # else()
-      #   add_custom_command(TARGET lovr POST_BUILD
-      #     COMMAND ${CMAKE_COMMAND} -E copy
-      #     $<TARGET_SONAME_FILE:${ARGV0}>
-      #     ${CMAKE_BINARY_DIR}/bin/$<TARGET_SONAME_FILE_NAME:${ARGV0}>
-      #   )
-      # endif()
-      install(TARGETS ${ARGV0} DESTINATION lib/)
+      if(${TARGET_TYPE} STREQUAL "MODULE_LIBRARY")
+        add_custom_command(TARGET lovr POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E copy
+          $<TARGET_FILE:${ARGV0}>
+          ${CMAKE_BINARY_DIR}/lib/$<TARGET_FILE_NAME:${ARGV0}>
+        )
+      else()
+        add_custom_command(TARGET lovr POST_BUILD
+          COMMAND ${CMAKE_COMMAND} -E copy
+          $<TARGET_SONAME_FILE:${ARGV0}>
+          ${CMAKE_BINARY_DIR}/lib/$<TARGET_SONAME_FILE_NAME:${ARGV0}>
+        )
+      endif()
     endif()
   endfunction()
   message("CMAKE_BINARY_DIR: "${CMAKE_BINARY_DIR})
