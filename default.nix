@@ -1,14 +1,16 @@
-{ config ? {}, lib ? {}, pkgs ? import <nixpkgs> {}, ... }:
+{ config ? { }, lib ? { }, pkgs ? import <nixpkgs> { }, ... }:
 
 pkgs.stdenv.mkDerivation {
   name = "lovr";
-  src = ./.; /*pkgs.fetchFromGitHub {
-    owner = "bjornbytes";
-    repo = "lovr";
-    sha256 = "0gqp8w68zk9sjp10nl2drs5qwnjx1qv4yqrrr2ny0z9vx2v531l4";
-    rev = "7ca23bc58a065c4be05af0a2717ee83bc501ecee";
-    fetchSubmodules = true;
-  };*/
+  src = ./.;
+  /* pkgs.fetchFromGitHub {
+       owner = "bjornbytes";
+       repo = "lovr";
+       sha256 = "0gqp8w68zk9sjp10nl2drs5qwnjx1qv4yqrrr2ny0z9vx2v531l4";
+       rev = "7ca23bc58a065c4be05af0a2717ee83bc501ecee";
+       fetchSubmodules = true;
+     };
+  */
 
   nativeBuildInputs = [
     pkgs.cmake
@@ -20,11 +22,20 @@ pkgs.stdenv.mkDerivation {
     pkgs.xorg.libXinerama
     pkgs.xorg.libXrandr
     pkgs.xorg.libXi
- ];
-  
-  configurePhase = ''cmake -B build -D OpenGL_GL_PREFERENCE=GLVND -D CMAKE_INSTALL_PREFIX=$out .'';
-  buildPhase = ''cmake --build build --parallel $NIX_BUILD_CORES; ls build  '';
-  installPhase = ''cmake --install build
-  patchelf --print-rpath build/lovr
-  cp build/lovr $out/bin/lovr'';
+  ];
+
+  # buildInputs = [ pkgs.breakpointHook ];
+
+  configurePhase =
+    "cmake -B build -D OpenGL_GL_PREFERENCE=GLVND -D CMAKE_INSTALL_PREFIX=$out .";
+  buildPhase = "cmake --build build --parallel $NIX_BUILD_CORES; ls build  ";
+  installPhase = ''
+    # cmake --install build
+    cp -r . $out
+    # mkdir -p $out/bin
+    # mkdir -p $out/lib
+    # cp build/bin/lovr $out/bin/lovr
+    # cp build/msdfgen/libmsdfgen.so build/ode/libode.so $out/lib
+    # patchelf --print-rpath $out/bin/lovr'';
+  # installPhase = "pwd ; cp -r . $out";
 }

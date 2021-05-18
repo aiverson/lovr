@@ -779,7 +779,7 @@ elseif(ANDROID)
 elseif(UNIX)
   set_target_properties(lovr PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
   install(TARGETS lovr DESTINATION bin/)
-  install(TARGETS lib_msdfgen ode DESTINATION lib/)
+  # install(TARGETS lib_msdfgen ode DESTINATION lib/)
   if(LOVR_USE_LINUX_EGL)
     target_compile_definitions(lovr PRIVATE LOVR_LINUX_EGL)
   else()
@@ -795,21 +795,23 @@ elseif(UNIX)
   function(move_lib)
     if(TARGET ${ARGV0})
       get_target_property(TARGET_TYPE ${ARGV0} TYPE)
-      if(${TARGET_TYPE} STREQUAL "MODULE_LIBRARY")
-        add_custom_command(TARGET lovr POST_BUILD
-          COMMAND ${CMAKE_COMMAND} -E copy
-          $<TARGET_FILE:${ARGV0}>
-          ${CMAKE_BINARY_DIR}/bin/$<TARGET_FILE_NAME:${ARGV0}>
-        )
-      else()
-        add_custom_command(TARGET lovr POST_BUILD
-          COMMAND ${CMAKE_COMMAND} -E copy
-          $<TARGET_SONAME_FILE:${ARGV0}>
-          ${CMAKE_BINARY_DIR}/bin/$<TARGET_SONAME_FILE_NAME:${ARGV0}>
-        )
-      endif()
+      # if(${TARGET_TYPE} STREQUAL "MODULE_LIBRARY")
+      #   add_custom_command(TARGET lovr POST_BUILD
+      #     COMMAND ${CMAKE_COMMAND} -E copy
+      #     $<TARGET_FILE:${ARGV0}>
+      #     ${CMAKE_BINARY_DIR}/bin/$<TARGET_FILE_NAME:${ARGV0}>
+      #   )
+      # else()
+      #   add_custom_command(TARGET lovr POST_BUILD
+      #     COMMAND ${CMAKE_COMMAND} -E copy
+      #     $<TARGET_SONAME_FILE:${ARGV0}>
+      #     ${CMAKE_BINARY_DIR}/bin/$<TARGET_SONAME_FILE_NAME:${ARGV0}>
+      #   )
+      # endif()
+      install(TARGETS ${ARGV0} DESTINATION lib/)
     endif()
   endfunction()
+  message("CMAKE_BINARY_DIR: "${CMAKE_BINARY_DIR})
   move_lib(${LOVR_GLFW})
   move_lib(${LOVR_LUA})
   move_lib(${LOVR_ODE})
@@ -820,3 +822,6 @@ elseif(UNIX)
     move_lib(${target})
   endforeach()
 endif()
+
+
+message("The end of the top level file")
